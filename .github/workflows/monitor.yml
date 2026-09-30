@@ -1,0 +1,41 @@
+name: Monitor
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check paidwen.com, app.paidwen.com and api.paidwen.com
+        shell: bash
+        run: |
+          failed=0
+          for url in https://paidwen.com/ https://app.paidwen.com/login https://api.paidwen.com/health; do
+            code=$(curl -s -o /dev/null -m 20 --retry 2 --retry-delay 10 --retry-all-errors -w "%{http_code}" "$url" || true)
+            echo "$url $code"
+            case "$code" in 2*|3*) ;; *) failed=1 ;; esac
+          done
+          exit $failed
+      - name: Keep the schedule alive
+        if: success()
+        uses: actions/checkout@v4
+      - name: Write the monthly heartbeat
+        if: success()
+        shell: bash
+        run: |
+          month=$(date -u +%Y-%m)
+          if [ "$(cat heartbeat.txt 2>/dev/null)" != "$month" ]; then
+            echo "$month" > heartbeat.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898+github-actions[bot]@users.noreply.github.com"
+            git add heartbeat.txt
+            git commit -q -m "Heartbeat $month"
+            git push -q
+          fi
